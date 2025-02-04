@@ -109,5 +109,10 @@ def text_file_to_string(file_path):
 
 if __name__ == '__main__':
     input_md = './C9_docker.md'  # 输入Markdown文件路径
-    output_dir = 'output'  # 输出文件夹路径
+    # 获取input_md的文件名（不包含路径和扩展名）
+    file_name = os.path.splitext(os.path.basename(input_md))[0]
+    
+    # 设置output_dir为文件名
+    output_dir = file_name  # 输出文件夹路径为文件名
+    print(f"将 {input_md} 按标题分割，保存到 {output_dir} 文件夹中")
     split_md_by_title(input_md, output_dir)

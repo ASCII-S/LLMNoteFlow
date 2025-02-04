@@ -137,7 +137,7 @@ def check_list_dict(json_str: str, key: str, value: Union[str, int, None] = None
     workspaces = data
 
     if not workspaces:
-        print("workspaces 为空或不存在")
+        print("json 为空或不存在:\n", workspaces)
         return False if value is not None else []
 
     # 检查 key 是否存在于任意 workspace
@@ -484,10 +484,11 @@ def main():
     #workspace_name = "AnkiCards-C++primer"
     workspace_name = "test"
     global_prompt_file_path = "./card_principle/principle.md"
-    workspace_name_slug = init_workspace(workspace_name,"deepseek-r1:7b",text_file_to_string(global_prompt_file_path)).get("slug")
+    global_prompt = text_file_to_string(global_prompt_file_path)
+    workspace_name_slug = init_workspace(workspace_name,"deepseek-r1:14b",global_prompt).get("slug")
     chat_thread_slug = init_workspace_thread(workspace_name_slug).get("slug")
 
-    local_folder_path = "mdsource"
+    local_folder_path = "C9_docker"
     output_file_path = "output.csv"
     finished_folder = "finished"
     unfinished_folder = "unfinished"
@@ -497,7 +498,7 @@ def main():
     for md_file in get_files_in_order(local_folder_path):
         try: 
             md_content = text_file_to_string(md_file)
-            md_content = md_content
+            md_content = global_prompt + "\n以下是笔记内容:\n" + md_content
             print("thinking...\n")
             #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
             chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
@@ -505,9 +506,13 @@ def main():
             chat_answer = chat_respond.split("</think>")[-1]
             # print(chat_think)
             # print("respond:\n")
-            # print(chat_respond)
+            print(chat_respond)
             csv_content = chat_answer.split("```json")[-1].split("```")[0].strip()
-            csv_content = ast.literal_eval(csv_content)
+            try:
+                csv_content = ast.literal_eval(csv_content)
+            except Exception as e:
+                print("Answer is not a valid json format")
+                continue
             csv_writer = csv.writer(sys.stdout, quoting=csv.QUOTE_ALL)
             csv_writer.writerows(csv_content)
             # 按照 UTF-8 编码写入 CSV 文件
@@ -517,6 +522,7 @@ def main():
             move_to_folder(md_file, finished_folder)
         except Exception as e:
             print(f"Error processing file {md_file}: {e}")
+            sys.exit(1)
             # 将出现异常的 md_file 移动到未完成的文件夹中
             move_to_folder(md_file, unfinished_folder)
             continue
