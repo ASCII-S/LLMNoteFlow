@@ -1,25 +1,11 @@
 import requests
 import base64
-import sys
-import os
 import json
 from typing import Union, List, Dict, Optional
-from SeperateMd import get_files_in_order 
-from SeperateMd import text_file_to_string
-import shutil
-import csv
-import ast
+from config import API_URL, API_KEY, headers
 
-# API 配置
-API_URL = "http://localhost:3001/api"
-API_KEY = "VCA7TJR-XWE4F0N-P46WAEV-NHEA2SV"
 
-# 请求头
-headers = {
-    "Authorization": f"Bearer {API_KEY}"
-}
-
-# **步骤 1**: 测试 API 是否连通
+# 测试 API 是否连通
 def test_api_connection():
     auth_url = f"{API_URL}/v1/auth"
     response = requests.get(auth_url, headers=headers)
@@ -31,7 +17,7 @@ def test_api_connection():
         return False
     return True
 
-# **步骤 2**: 创建新的 workspace
+# 创建新的 workspace
 def create_workspace(Workspace_name="My New Workspace"):
     workspace_url = f"{API_URL}/v1/workspace/new"
 
@@ -60,10 +46,10 @@ def create_workspace(Workspace_name="My New Workspace"):
     else:
         return {"error": f"Workspace 创建失败，HTTP 状态码: {response.status_code}", "message": response.text}
     
-# **步骤 3**: 在 `test` workspace 中创建新 Thread
-def create_thread(WORKSPACE_SLUG,thread_name="Example-thread",thread_slug="example-thread"):
+# 在workspace 中创建新 Thread
+def create_thread(WORKSPACE_SLUG,thread_name="Example-thread"):
     thread_url = f"{API_URL}/v1/workspace/{WORKSPACE_SLUG}/thread/new"
-    
+    thread_slug = thread_name
     slug = WORKSPACE_SLUG+"-"+thread_slug
     # 发送的 JSON 数据
     data = {
@@ -83,31 +69,57 @@ def create_thread(WORKSPACE_SLUG,thread_name="Example-thread",thread_slug="examp
         print(f"❌ Thread 创建失败，HTTP 状态码: {response.status_code}")
         print("错误信息:", response.text)
 
+# # 更新 Workspace 设置
+# def update_workspace(workspace_slug, key, value):
+#     url = f"{API_URL}/v1/workspace/{workspace_slug}/update"  # 替换成你的 API URL
 
-def update_workspace(workspace_slug, key, value):
+#     # 准备要更新的工作区设置数据
+#     workspace_data = {
+#         key: value
+#     }
+
+#     # 发送 PUT 请求更新工作区设置
+#     response = requests.post(url, json=workspace_data, headers=headers)
+
+#     # 检查请求是否成功
+#     if response.status_code == 200:
+#         print(f"工作区设置更新成功:{key}={value}")
+#         return response.json()  # 返回 JSON 格式的响应内容
+#     else:
+#         print(f"工作区设置更新请求失败，状态码：{response.status_code}")
+#         return response.text  # 返回错误消息或响应内容
+    
+
+
+def update_workspace(workspace_slug, updates):
+    """
+    更新多个工作区设置。
+
+    :param workspace_slug: 工作区的标识符
+    :param updates: 包含多个key-value对的字典
+    :return: API响应结果
+    """
     url = f"{API_URL}/v1/workspace/{workspace_slug}/update"  # 替换成你的 API URL
 
-    # 准备要更新的工作区设置数据
-    workspace_data = {
-        key: value
-    }
-
     # 发送 PUT 请求更新工作区设置
-    response = requests.post(url, json=workspace_data, headers=headers)
-
+    response = requests.post(url, json=updates, headers=headers)
     # 检查请求是否成功
     if response.status_code == 200:
-        print(f"工作区设置更新成功:{key}={value}")
+        print(f"工作区设置更新成功: {updates}")
         return response.json()  # 返回 JSON 格式的响应内容
     else:
         print(f"工作区设置更新请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
-    
+
+
+
+
+
 # **获取 Workspace 列表**
 def list_workspaces():
     url = f"{API_URL}/v1/workspaces"  # API_URL 需要提前定义
     response = requests.get(url, headers=headers)  # headers 需要提前定义
-
+    # print("调用API:list_workspaces")
     # 检查请求是否成功
     if response.status_code == 200:
         workspaces = response.json()
@@ -115,46 +127,6 @@ def list_workspaces():
     else:
         print(f"请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误信息或响应内容
-
-def check_list_dict(json_str: str, key: str, value: Union[str, int, None] = None) -> Union[bool, List[Union[str, int]], Dict, None]:
-    """
-    检查 JSON 格式的字符串中是否存在指定的键值对，或者列出该键下的所有值，或返回匹配的整个字典。
-
-    :param json_str: JSON 格式的字符串
-    :param key: 需要查找的键 (如 "name"、"id" 等)
-    :param value: 需要匹配的值（可选）
-    :return:
-        - 如果提供 `value`，返回匹配的整个字典（若找到）或 `None`（未找到）。
-        - 如果未提供 `value`，返回该 `key` 下的所有值列表。
-        - 如果 `workspaces` 为空或 `key` 不存在，返回 `False`（查询 `key=value`）或 `[]`（查询所有值）。
-    """
-    try:
-        data = json.loads(json_str)  # 解析 JSON 字符串
-    except json.JSONDecodeError:
-        print("JSON 格式错误")
-        return False
-
-    workspaces = data
-
-    if not workspaces:
-        print("json 为空或不存在:\n", workspaces)
-        return False if value is not None else []
-
-    # 检查 key 是否存在于任意 workspace
-    if not any(key in workspace for workspace in workspaces):
-        print(f"没有该键: {key}")
-        return False if value is not None else []
-
-    if value is not None:
-        # 查询 key-value 是否匹配并返回整个字典
-        for workspace in workspaces:
-            if workspace.get(key) == value:
-                return workspace  # 返回整个字典
-        print(f"未找到 {key}={value} 对应的工作空间")
-        return None
-    else:
-        # 获取所有 key 对应的值
-        return [workspace[key] for workspace in workspaces if key in workspace]
 
 
 # **删除指定 Workspace**
@@ -183,7 +155,7 @@ def encode_image_to_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-# 发送聊天消息的函数
+# 发送聊天到指定的workspace
 def send_message_to_workspace(workspace_slug, message, mode="chat"):
     url = f"{API_URL}/v1/workspace/{workspace_slug}/chat"
     
@@ -205,6 +177,7 @@ def send_message_to_workspace(workspace_slug, message, mode="chat"):
         print(f"❌ 消息发送失败，HTTP 状态码: {response.status_code}")
         print("错误信息:", response.text)
 
+# 发送消息到指定的 thread
 def send_chat_to_thread(workspace_slug, thread_slug, message, mode="chat"):
     url = f"{API_URL}/v1/workspace/{workspace_slug}/thread/{thread_slug}/chat"
     
@@ -224,7 +197,8 @@ def send_chat_to_thread(workspace_slug, thread_slug, message, mode="chat"):
     else:
         print(f"请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
-    
+
+# 发送消息到指定的 thread 并以stream的形式获取返回的聊天内容 
 def send_stream_chat_to_thread(workspace_slug, thread_slug, message="Hello World!", mode="chat"):
     url = f"{API_URL}/v1/workspace/{workspace_slug}/thread/{thread_slug}/stream-chat"
 
@@ -268,6 +242,7 @@ def send_stream_chat_to_thread(workspace_slug, thread_slug, message="Hello World
         print(f"请求失败，状态码：{response.status_code}")
         print("错误信息:", response.text)
 
+# 在anythingllm中创建新的文档文件夹
 def create_document_folder(folder_name):
     url = f"{API_URL}/v1/document/create-folder"
     
@@ -286,7 +261,8 @@ def create_document_folder(folder_name):
     else:
         print(f"请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
-    
+
+# 在anythingllm中移动文件
 def move_file(file_from, file_to):
     url = f"{API_URL}/v1/document/move-files"
     
@@ -307,7 +283,8 @@ def move_file(file_from, file_to):
     else:
         print(f"文件移动请求失败，状态码：{response.status_code}")
         return None
-    
+
+# 上传文件到anythingllm ,默认文件夹为custom-documents
 def upload_file(file_path):
     url = f"{API_URL}/v1/document/upload"
     
@@ -330,7 +307,7 @@ def upload_file(file_path):
         print(f"请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
 
-    
+# 获取文档列表 
 def get_documents():
     url = f"{API_URL}/v1/documents"  # API地址
     
@@ -343,6 +320,7 @@ def get_documents():
         print(f"查询文件列表请求失败，状态码：{response.status_code}")
         return None
 
+# 从 JSON 响应中提取嵌套键的值
 def extract_nested_value(response_json, first_key, second_key=None, third_key=None):
     """
     从 JSON 响应中提取第一层、第二层或第三层的嵌套键的值。
@@ -368,7 +346,7 @@ def extract_nested_value(response_json, first_key, second_key=None, third_key=No
 
     return None  # 如果任何一层不存在，则返回 None
 
-
+# 上传文件到指定文件夹
 def upload_to_folder(local_file_path, output_dir):
     # 上传文件
     upload_file_response = upload_file(local_file_path)
@@ -392,6 +370,7 @@ def upload_to_folder(local_file_path, output_dir):
     
     return file_to
 
+# 更新工作空间的嵌入向量
 def update_workspace_embeddings(workspace_slug, add_files=None, delete_files=None):
     url = f"{API_URL}/v1/workspace/{workspace_slug}/update-embeddings"
     
@@ -412,13 +391,7 @@ def update_workspace_embeddings(workspace_slug, add_files=None, delete_files=Non
         print(f"update_workspace_embeddings请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
 
-def test_update_workspace_embeddings():
-    # 示例调用
-    workspace_slug = "7btest"
-    add_files = ["C9_docker2/C9_docker.md-b71ae8a6-b14d-432e-aee6-77d5ab48b8a0.json"]
-    delete_files = []
-    update_workspace_embeddings(workspace_slug, add_files, delete_files)
-
+# 更新工作空间中文档的固定状态
 def update_document_pin_status(workspace_slug, doc_path, pin_status):
     url = f"{API_URL}/v1/workspace/{workspace_slug}/update-pin"
     
@@ -438,94 +411,3 @@ def update_document_pin_status(workspace_slug, doc_path, pin_status):
     else:
         print(f"update_document_pin_status请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误消息或响应内容
-    
-def test_update_document_pin_status():
-    # 示例调用
-    workspace_slug = "7btest"
-    doc_path = "C9_docker2/C9_docker.md-b71ae8a6-b14d-432e-aee6-77d5ab48b8a0.json"
-    pin_status = True
-    update_document_pin_status(workspace_slug, doc_path, pin_status)
-
-def init_workspace(workspace_name = "DefaultWorkspace",chatmodel = "deepseek-r1:7b",global_prompt = "你是一个智能助手"):
-    workspace_name_json = check_list_dict(json_str:=json.dumps(list_workspaces().get("workspaces")), "name", workspace_name)
-    if not workspace_name_json:
-        workspace_name_json = create_workspace(workspace_name).get("workspace")
-        workspace_name_slug = workspace_name_json.get("slug")
-        print(f"Workspace-slug:{workspace_name_slug}")
-        update_workspace(workspace_name_slug, "chatProvider", "ollama")
-        update_workspace(workspace_name_slug, "chatModel", chatmodel)
-        update_workspace(workspace_name_slug, "agentProvider", "ollama")
-        update_workspace(workspace_name_slug, "agentModel", chatmodel)
-        update_workspace(workspace_name_slug, "openAiPrompt", global_prompt)
-    else:
-        print(f"Workspace:{workspace_name} already exists, continue...")
-    return workspace_name_json
-    
-def init_workspace_thread(workspace_name_slug, thread_name = "DefaultThread", thread_slug = "DefaultThread"):
-    workspace_name_json = check_list_dict(json_str:=json.dumps(list_workspaces().get("workspaces")), "slug", workspace_name_slug)
-    thread_name_json = check_list_dict(json_str:=json.dumps(workspace_name_json.get("threads")), "name", thread_name)
-    if not thread_name_json:
-        thread_name_json = create_thread(workspace_name_slug, thread_name, thread_slug).get("thread")
-    else:
-        print(f"Thread:{thread_name} already exists, continue...")
-    return thread_name_json
-
-def init_workspace_folder(workspace_name = "DefaultWorkspace"):
-    workspace_folder = workspace_name
-    workspace_folder_json = check_list_dict(json_str:=json.dumps(get_documents().get("localFiles").get("items")), "name", workspace_folder)
-    if not workspace_folder_json:
-        workspace_folder_json = create_document_folder(workspace_folder)
-    else:
-        print(f"Folder:{workspace_folder} already exists, continue...")
-    return
-
-def main():
-        
-    #workspace_name = "AnkiCards-C++primer"
-    workspace_name = "test"
-    global_prompt_file_path = "./card_principle/principle.md"
-    global_prompt = text_file_to_string(global_prompt_file_path)
-    workspace_name_slug = init_workspace(workspace_name,"deepseek-r1:14b",global_prompt).get("slug")
-    chat_thread_slug = init_workspace_thread(workspace_name_slug).get("slug")
-
-    local_folder_path = "C9_docker"
-    output_file_path = "output.csv"
-    finished_folder = "finished"
-    unfinished_folder = "unfinished"
-
-    move_to_folder = lambda src, dst: (os.makedirs(dst) if not os.path.exists(dst) else None) or shutil.move(src, os.path.join(dst, os.path.basename(src)))
-
-    for md_file in get_files_in_order(local_folder_path):
-        try: 
-            md_content = text_file_to_string(md_file)
-            md_content = global_prompt + "\n以下是笔记内容:\n" + md_content
-            print("thinking...\n")
-            #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
-            chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
-            chat_think = chat_respond.split("<think>")[-1].split("</think>")[0]
-            chat_answer = chat_respond.split("</think>")[-1]
-            # print(chat_think)
-            # print("respond:\n")
-            print(chat_respond)
-            csv_content = chat_answer.split("```json")[-1].split("```")[0].strip()
-            try:
-                csv_content = ast.literal_eval(csv_content)
-            except Exception as e:
-                print("Answer is not a valid json format")
-                continue
-            csv_writer = csv.writer(sys.stdout, quoting=csv.QUOTE_ALL)
-            csv_writer.writerows(csv_content)
-            # 按照 UTF-8 编码写入 CSV 文件
-            with open(output_file_path, "a+", newline="", encoding="utf-8") as csvfile:
-                writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
-                writer.writerows(csv_content)
-            move_to_folder(md_file, finished_folder)
-        except Exception as e:
-            print(f"Error processing file {md_file}: {e}")
-            sys.exit(1)
-            # 将出现异常的 md_file 移动到未完成的文件夹中
-            move_to_folder(md_file, unfinished_folder)
-            continue
-
-if __name__ == "__main__":
-    main()
