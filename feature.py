@@ -1,11 +1,71 @@
 from typing import Union, List, Dict, Optional
 import sys
 import csv
-import ast
+import os
 import json
 from file_utils import get_files_in_order, text_file_to_string, move_to_folder, split_md_by_title
-from apihandler import send_stream_chat_to_thread, create_workspace, list_workspaces, update_workspace, create_thread, get_documents, create_document_folder, send_chat_to_thread
-from config import *
+from apihandler import send_stream_chat_to_thread, create_workspace, list_workspaces, update_workspace, create_thread, get_documents, create_document_folder, send_chat_to_thread, delete_workspace
+
+import importlib
+import config
+
+global source_file_path, des_folder_path, global_prompt_file_path, workspace_name, chatmodel, thread_name, output_file_name, output_file_path, finished_folder, unfinished_folder, init_updates, source_file_name, output_folder_path
+
+def reload_config():
+    # 以全局变量的形式重新配置 config 模块
+    global source_file_path, des_folder_path, global_prompt_file_path, workspace_name, chatmodel, thread_name, output_file_name, output_file_path, finished_folder, unfinished_folder, init_updates, source_file_name, output_folder_path
+    importlib.reload(config)
+    workspace_name = config.workspace_name
+    chatmodel = config.chatmodel
+    thread_name = config.thread_name
+    project_folder_path = config.project_folder_path
+    source_file_name = config.source_file_name
+    global_prompt_file_name = config.global_prompt_file_name
+    output_file_suffix = config.output_file_suffix
+    #######don't modify this config#######
+    # 默认模型
+    default_model = "deepseek-r1:14b"
+    # 使用本地文件夹名称构建路径
+    #data
+    data_folder_name = "data"
+    data_folder = os.path.join(project_folder_path, data_folder_name)
+    source_file_path = os.path.join(data_folder, source_file_name)
+    #prompt
+    global_prompt_folder_name = "prompt"
+    global_prompt_folder_path = os.path.join(project_folder_path, global_prompt_folder_name)
+    global_prompt_file_path = os.path.join(global_prompt_folder_path, global_prompt_file_name)
+    #processed
+    processed_folder_name = "processed"  # 存放所有处理后的数据
+    processed_folder = os.path.join(project_folder_path, processed_folder_name)
+    ##des_folder
+    des_folder_path = os.path.join(processed_folder, os.path.basename(source_file_path).split(".")[0])
+    ###finished_folder
+    finished_folder_name = "finished"
+    finished_folder = os.path.join(des_folder_path, finished_folder_name)
+    ###unfinished_folder
+    unfinished_folder_name = "unfinished"
+    unfinished_folder = os.path.join(des_folder_path, unfinished_folder_name)
+    #output
+    output_folder_name = "output"
+    output_folder_path = os.path.join(project_folder_path, output_folder_name)
+    output_file_name  = os.path.basename(source_file_path).split(".")[0]
+    output_file_path = os.path.join(output_folder_path, f"{output_file_name}_{output_file_suffix}")
+    #log
+    log_folder_name = "log"
+    log_folder_path = os.path.join(project_folder_path, log_folder_name)
+    WORKSPACE_CACHE_FILE = os.path.join(log_folder_path, "workspace_cache.json")  # 记录历史输入的 JSON 文件
+    last_update_file = os.path.join(log_folder_path, "last_update.txt")  # 记录上次 API 请求时间
+
+    #update workspace
+    init_updates = {
+        "name": workspace_name,
+        "chatProvider": "ollama",
+        "chatModel": chatmodel,
+        "chatMode": "chat",
+        "agentProvider": "ollama",
+        "agentModel": chatmodel
+    }
+    #######end:don't modify this config#######
 
 
 # **检查 JSON 字符串中是否存在指定的键值对**
@@ -53,13 +113,17 @@ def check_list_dict(json_str: str, key: str, value: Union[str, int, None] = None
 # 新建并且初始化工作空间
 def init_workspace(workspace_name = "DefaultWorkspace",chatmodel = "deepseek-r1:7b",global_prompt = "你是一个智能助手"):
     workspace_name_json = check_list_dict(json_str:=json.dumps(list_workspaces().get("workspaces")), "name", workspace_name)
+    if workspace_name_json:
+        workspace_name_slug = workspace_name_json.get("slug")
+        print(f"Workspace:{workspace_name} already exists, recreat it...")
+        delete_workspace(workspace_name_slug)
+        workspace_name_json = None
     if not workspace_name_json:
         workspace_name_json = create_workspace(workspace_name).get("workspace")
         workspace_name_slug = workspace_name_json.get("slug")
         print(f"Workspace-slug:{workspace_name_slug}")
         update_workspace(workspace_name_slug, init_updates)
-    else:
-        print(f"Workspace:{workspace_name} already exists, continue...")
+        return workspace_name_json
     return workspace_name_json
 
 # 新建并且初始化工作空间的thread  
@@ -82,29 +146,33 @@ def init_workspace_folder(workspace_name = "DefaultWorkspace"):
         print(f"Folder:{workspace_folder} already exists, continue...")
     return
 
-
-def md_folder_to_cards():
-
+def md_folder_to_cards(progress_callback=None):
+    reload_config()
     # 切割笔记文件
-    split_md_by_title(source_file_path, des_folder_path)
-    
+    split_md_by_title(source_file_path, des_folder_path, ignore_title=True)
     global_prompt = text_file_to_string(global_prompt_file_path)
     workspace_name_slug = init_workspace(workspace_name,chatmodel,global_prompt).get("slug")
     chat_thread_slug = init_workspace_thread(workspace_name_slug,thread_name).get("slug")
     update_workspace(workspace_name_slug, init_updates)
-
+    update_workspace(workspace_name_slug, {"openAiprompt": global_prompt})
     #move_to_folder = lambda src, dst: (os.makedirs(dst) if not os.path.exists(dst) else None) or shutil.move(src, os.path.join(dst, os.path.basename(src)))
-
-    for md_file in get_files_in_order(des_folder_path):
+    
+    # 如果已经存在结果文件output_file_path则删除
+    if os.path.exists(output_file_path):
+        os.remove(output_file_path)
+        print(f"Deleted the existing output file: {output_file_path}")
+    # 获取文件列表并计算总数
+    files = list(get_files_in_order(des_folder_path))
+    total_files = len(files)
+    for index, md_file in enumerate(files, start=1):
         try: 
             md_content = text_file_to_string(md_file)
-            md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
+            #md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
             print("\nthinking...")
 
             #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
-            #chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
-            chat_respond = send_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
-            
+            #chat_respond = send_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content).get("textResponse")
+            chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
             chat_think = chat_respond.split("<think>")[-1].split("</think>")[0]
             chat_answer = chat_respond.split("</think>")[-1]
 
@@ -112,7 +180,6 @@ def md_folder_to_cards():
             # print("respond:\n")
             print("chat_respond:\n",chat_respond,"end chat_respond\n")
             # 从回答中提取 JSON 内容
-            
             try:
                 # 提取并解析 JSON 部分
                 csv_content = chat_answer.split("```json")[-1].split("```")[0].strip()
@@ -144,8 +211,12 @@ def md_folder_to_cards():
                     print("'回答' is not a list.")
             else:
                 print("Parsed JSON data does not contain '回答' or is not a dictionary.")
-
+            
             move_to_folder(md_file, finished_folder)
+            
+            # 触发进度更新（每处理一个文件更新一次）
+            if progress_callback:
+                progress_callback(index, total_files)
         except Exception as e:
             print(f"Error processing file {md_file}: {e}")
             sys.exit(1)
@@ -153,22 +224,37 @@ def md_folder_to_cards():
             move_to_folder(md_file, unfinished_folder)
             continue
 
-def md_folder_note_improver():
-
+def md_folder_note_improver(progress_callback=None):
+    reload_config()
     # 切割笔记文件
-    split_md_by_title(source_file_path, des_folder_path)
-    
+    split_md_by_title(source_file_path, des_folder_path, ignore_title=False)
     global_prompt = text_file_to_string(global_prompt_file_path)
     workspace_name_slug = init_workspace(workspace_name,chatmodel,global_prompt).get("slug")
     chat_thread_slug = init_workspace_thread(workspace_name_slug,thread_name).get("slug")
     update_workspace(workspace_name_slug, init_updates)
+    update_workspace(workspace_name_slug, {"openAiPrompt": global_prompt})
     #move_to_folder = lambda src, dst: (os.makedirs(dst) if not os.path.exists(dst) else None) or shutil.move(src, os.path.join(dst, os.path.basename(src)))
-
-    for md_file in get_files_in_order(des_folder_path):
+    
+    # 如果已经存在结果文件output_file_path则删除
+    if os.path.exists(output_file_path):
+        os.remove(output_file_path)
+        print(f"Deleted the existing output file: {output_file_path}")
+    # 获取文件列表并计算总数
+    files = list(get_files_in_order(des_folder_path))
+    total_files = len(files)
+    for index, md_file in enumerate(files, start=1):
         try: 
             md_content = text_file_to_string(md_file)
-            md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
+            #md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
+        
+            print("md_content:\n",md_content,"end md_content\n")
             print("\nthinking...")
+            
+            # 如果md_content中除去空行只有一行,并且他是以#或##开头的,则直接将他添加到new_md_file中
+            if len(md_content.split("\n")) <= 2 and (md_content.startswith("#") or md_content.startswith("##")) and not md_content.startswith("###"):
+                save_to_new_md_file(md_file, md_content)
+                move_to_folder(md_file, finished_folder)
+                continue
 
             #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
             chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
@@ -177,13 +263,17 @@ def md_folder_note_improver():
 
             # print(chat_think)
             # print("respond:\n")
-            print("chat_respond:\n",chat_respond,"end chat_respond\n")
+            #print("chat_respond:\n",chat_respond,"end chat_respond\n")
             # 从回答中提取 JSON 内容
             
             # 将chat_answer添加到新的md文件中
             save_to_new_md_file(md_file, chat_answer)
 
             move_to_folder(md_file, finished_folder)
+
+            # 触发进度更新（每处理一个文件更新一次）
+            if progress_callback:
+                progress_callback(index, total_files)
         except Exception as e:
             print(f"Error processing file {md_file}: {e}")
             sys.exit(1)
@@ -199,22 +289,19 @@ def save_to_new_md_file(md_file, chat_answer):
         md_file (str): 原始md文件路径。
         chat_answer (str): 改进后的md内容。
     """
-    try:
-        # 获取原始md文件的文件名和扩展名
-        base_name = os.path.basename(source_file_name)
-        file_name, file_extension = os.path.splitext(base_name)
-        
+    try:        
         # 构造新的文件路径，可以将其保存到指定的文件夹
-        new_md_file_path = os.path.join(output_folder_path, f"{file_name}_improved{file_extension}")
+        new_md_file_path = output_file_path
         
         # 写入改进后的内容
         with open(new_md_file_path, 'a+', encoding='utf-8') as f:
             f.write(chat_answer)
-        
-        print(f"Successfully saved the improved md file: {new_md_file_path}")
+        print(f"processed file: {os.path.basename(md_file)}")
+        #print(f"Successfully saved the improved md file: {new_md_file_path}")
     except Exception as e:
         print(f"Error saving the new md file for {md_file}: {e}")
 
 
 if __name__ == "__main__":
+    #md_folder_to_cards()
     md_folder_note_improver()

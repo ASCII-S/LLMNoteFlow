@@ -27,6 +27,7 @@ def create_workspace(Workspace_name="My New Workspace"):
         "similarityThreshold": 0.7,
         "openAiTemp": 0.7,
         "openAiHistory": 20,
+        "chatModel": "deepseek-r1:14b",
         "queryRefusalResponse": "Custom refusal message",
         "chatMode": "chat",
         "topN": 4
@@ -69,27 +70,6 @@ def create_thread(WORKSPACE_SLUG,thread_name="Example-thread"):
         print(f"❌ Thread 创建失败，HTTP 状态码: {response.status_code}")
         print("错误信息:", response.text)
 
-# # 更新 Workspace 设置
-# def update_workspace(workspace_slug, key, value):
-#     url = f"{API_URL}/v1/workspace/{workspace_slug}/update"  # 替换成你的 API URL
-
-#     # 准备要更新的工作区设置数据
-#     workspace_data = {
-#         key: value
-#     }
-
-#     # 发送 PUT 请求更新工作区设置
-#     response = requests.post(url, json=workspace_data, headers=headers)
-
-#     # 检查请求是否成功
-#     if response.status_code == 200:
-#         print(f"工作区设置更新成功:{key}={value}")
-#         return response.json()  # 返回 JSON 格式的响应内容
-#     else:
-#         print(f"工作区设置更新请求失败，状态码：{response.status_code}")
-#         return response.text  # 返回错误消息或响应内容
-    
-
 
 def update_workspace(workspace_slug, updates):
     """
@@ -112,9 +92,6 @@ def update_workspace(workspace_slug, updates):
         return response.text  # 返回错误消息或响应内容
 
 
-
-
-
 # **获取 Workspace 列表**
 def list_workspaces():
     url = f"{API_URL}/v1/workspaces"  # API_URL 需要提前定义
@@ -128,27 +105,76 @@ def list_workspaces():
         print(f"请求失败，状态码：{response.status_code}")
         return response.text  # 返回错误信息或响应内容
 
+def delete_workspace(workspace_slug: str) -> dict:
+    """
+    删除工作区（仅依赖 HTTP 状态码）
 
-# **删除指定 Workspace**
-def delete_workspace(workspace_slug):
+    :param workspace_slug: 工作区唯一标识符
+    :return: 统一格式的结果字典
+    """
     delete_url = f"{API_URL}/v1/workspace/{workspace_slug}"
+    
+    try:
+        response = requests.delete(delete_url, headers=headers)
+        response.raise_for_status()  # 自动触发 4xx/5xx 错误
+        
+        # 成功（假设 204 No Content 或其他 2xx 状态码）
+        print(f"✅ 工作区 {workspace_slug} 删除成功（HTTP {response.status_code}）")
+        return {"status": "success", "code": response.status_code}
 
-    # 发送 DELETE 请求删除 workspace
-    response = requests.delete(delete_url, headers=headers)
-
-    # 打印响应状态码
-    print(f"HTTP 状态码: {response.status_code}")
-
-    # 如果响应有内容，尝试解析 JSON
-    if response.status_code == 200:
+    except requests.exceptions.HTTPError as e:
+        # HTTP 错误（4xx/5xx）
+        error_msg = f"❌ 删除工作区失败（HTTP {response.status_code}）"
+        # 尝试解析可能的错误消息（如果 API 返回 JSON）
         try:
-            response_json = response.json()
-            print("响应内容:", response_json)
-        except requests.exceptions.JSONDecodeError:
-            print("响应没有返回 JSON 数据:", response.text)
-    else:
-        print(f"❌ 删除 Workspace 失败，HTTP 状态码: {response.status_code}")
-        print("响应内容:", response.text)
+            error_data = response.json()
+            error_msg += f"\n错误详情: {error_data.get('message', '未知错误')}"
+        except json.JSONDecodeError:
+            error_msg += f"\n响应内容: {response.text[:100]}"  # 截断防止过长
+            
+        print(error_msg)
+        return {"error": error_msg, "code": response.status_code}
+
+    except requests.exceptions.RequestException as e:
+        # 网络/连接错误
+        error_msg = f"❌ 网络请求失败: {str(e)}"
+        print(error_msg)
+        return {"error": error_msg, "code": None}
+
+
+def delete_thread(workspace_slug: str, thread_slug: str) -> dict:
+    """
+    删除线程（仅依赖 HTTP 状态码）
+
+    :param workspace_slug: 工作区唯一标识符
+    :param thread_slug: 线程唯一标识符
+    :return: 统一格式的结果字典
+    """
+    delete_url = f"{API_URL}/v1/workspace/{workspace_slug}/thread/{thread_slug}"
+    
+    try:
+        response = requests.delete(delete_url, headers=headers)
+        response.raise_for_status()
+        
+        # 成功
+        print(f"✅ 线程 {thread_slug} 删除成功（HTTP {response.status_code}）")
+        return {"status": "success", "code": response.status_code}
+
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"❌ 删除线程失败（HTTP {response.status_code}）"
+        try:
+            error_data = response.json()
+            error_msg += f"\n错误详情: {error_data.get('message', '未知错误')}"
+        except json.JSONDecodeError:
+            error_msg += f"\n响应内容: {response.text[:100]}"
+            
+        print(error_msg)
+        return {"error": error_msg, "code": response.status_code}
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"❌ 网络请求失败: {str(e)}"
+        print(error_msg)
+        return {"error": error_msg, "code": None}
 
 # 读取并转换图片为 base64
 def encode_image_to_base64(image_path):

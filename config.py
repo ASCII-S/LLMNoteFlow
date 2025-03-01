@@ -4,17 +4,17 @@
 API_URL = r"http://localhost:3001/api"
 API_KEY = r"VCA7TJR-XWE4F0N-P46WAEV-NHEA2SV"
 # 工作区配置
-workspace_name = r"70bN2C"
-chatmodel = r"deepseek-r1:7b"
-thread_name = r"C++primer"
+workspace_name = r"NoteImprover32b"
+chatmodel = r"deepseek-r1:32b"
+thread_name = r"newThread"
 # 项目主目录
-project_folder_path = r"D:/Document/ankiCards/c++primer"
+project_folder_path = r"D:\Document\ankiCards\c++primer"
 # 待处理文件位置:project_folder_path/data
 source_file_name = r"第 10 章 泛型算法.md"
 # 全局提示文件位置:project_folder_path/global_prompt_file_name
-global_prompt_file_name = r"noteimprover.md"
+global_prompt_file_name = r"noteimprover_easy.md"
 # 输出文件后缀
-output_file_suffix = r"cards.csv"
+output_file_suffix = r"improved-32b.md"
 #######end:modify this config#######
 
 
@@ -25,6 +25,8 @@ from datetime import datetime
 headers = {
     "Authorization": "Bearer VCA7TJR-XWE4F0N-P46WAEV-NHEA2SV"
 }
+# 默认模型
+default_model = "deepseek-r1:14b"
 # 使用本地文件夹名称构建路径
 #data
 data_folder_name = "data"
@@ -53,9 +55,9 @@ output_file_path = os.path.join(output_folder_path, f"{output_file_name}_{output
 #log
 log_folder_name = "log"
 log_folder_path = os.path.join(project_folder_path, log_folder_name)
-current_date = datetime.now().strftime("%Y-%m-%d")
-log_file_name = f"{current_date}.log"
-log_file = os.path.join(log_folder_path, log_file_name)
+WORKSPACE_CACHE_FILE = os.path.join(log_folder_path, "workspace_cache.json")  # 记录历史输入的 JSON 文件
+last_update_file = os.path.join(log_folder_path, "last_update.txt")  # 记录上次 API 请求时间
+
 #update workspace
 init_updates = {
     "name": workspace_name,

@@ -1,14 +1,16 @@
 import os
 import re
 import shutil
-from config import data_folder, global_prompt_folder_path, processed_folder, des_folder_path, finished_folder, unfinished_folder, output_folder_path, log_folder_path
+from config import data_folder, global_prompt_folder_path, processed_folder, des_folder_path, finished_folder, unfinished_folder, output_folder_path, log_folder_path, WORKSPACE_CACHE_FILE
+from pathlib import Path
+import json
 
 # 清理非法字符
 def clean_filename(name):
     return re.sub(r'[<>:"/\\|?*]', '_', name)
 
 # 清理无效字符，保留标题的回车符
-def clean_content(content):
+def clean_content(content, ignore_title=False):
     cleaned_content = []
     for line in content:
         line = line.rstrip()  # 去掉行尾的空格
@@ -16,11 +18,11 @@ def clean_content(content):
         if line and line != '---':  
             cleaned_content.append(line + '\n')  # 保留回车符
     # 如果清理后的内容只有标题和空行，返回空列表
-    if len(cleaned_content) <= 1:
+    if len(cleaned_content) <= 1 and ignore_title:
         return None
     return cleaned_content
 
-def split_md_by_title(md_file_path, output_dir):
+def split_md_by_title(md_file_path, output_dir, ignore_title=False):
     with open(md_file_path, 'r', encoding='utf-8') as md_file:
         content = md_file.readlines()
 
@@ -40,7 +42,7 @@ def split_md_by_title(md_file_path, output_dir):
         if line.startswith('#') and line.count('#') == 1:
             # 如果当前内容有实际内容且不为空，保存
             if file_content:
-                cleaned_content = clean_content(file_content)
+                cleaned_content = clean_content(file_content, ignore_title)
                 if cleaned_content:  # 如果清理后的内容不为空
                     file_name = f"{file_counter:03d}.md"
                     file_path = os.path.join(output_dir, file_name)
@@ -55,7 +57,7 @@ def split_md_by_title(md_file_path, output_dir):
         elif line.startswith('#') and line.count('#') == 2:
             # 保存之前的内容（如果有的话）
             if file_content:
-                cleaned_content = clean_content(file_content)
+                cleaned_content = clean_content(file_content, ignore_title)
                 if cleaned_content:  # 如果清理后的内容不为空
                     file_name = f"{file_counter:03d}.md"
                     file_path = os.path.join(output_dir, file_name)
@@ -70,7 +72,7 @@ def split_md_by_title(md_file_path, output_dir):
         elif line.startswith('#') and line.count('#') == 3:
             # 保存之前的内容（如果有的话）
             if file_content:
-                cleaned_content = clean_content(file_content)
+                cleaned_content = clean_content(file_content, ignore_title)
                 if cleaned_content:  # 如果清理后的内容不为空
                     file_name = f"{file_counter:03d}.md"
                     file_path = os.path.join(output_dir, file_name)
@@ -87,7 +89,7 @@ def split_md_by_title(md_file_path, output_dir):
 
     # 最后一部分的内容保存
     if file_content:
-        cleaned_content = clean_content(file_content)
+        cleaned_content = clean_content(file_content, ignore_title)
         if cleaned_content:  # 如果清理后的内容不为空
             file_name = f"{file_counter:03d}.md"
             file_path = os.path.join(output_dir, file_name)
@@ -104,6 +106,13 @@ def get_files_in_order(folder_path):
     # 返回排序后的文件路径
     for file in files:
         yield os.path.join(folder_path, file)
+
+# 在file_utils.py中使用生成器替代列表
+def get_files_in_order_fail(folder_path):
+    for f in sorted(os.listdir(folder_path), 
+                   key=lambda x: int(x.split('.')[0])):
+        if f.endswith('.md'):
+            yield os.path.join(folder_path, f)
 
 def text_file_to_string(file_path):
     # 打开文件并读取内容
@@ -126,6 +135,28 @@ def init_folder():
     for folder in folders_to_create:
         if not os.path.exists(folder):
             os.makedirs(folder)
+
+def load_workspace_cache():
+    """从 `workspace_cache.json` 读取 `workspace_name`、`chatmodel`、`thread_name`"""
+    if not Path(WORKSPACE_CACHE_FILE).exists():
+        return {"workspaces": []}  # **文件不存在，返回空数据**
+
+    with open(WORKSPACE_CACHE_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    return data
+    
+def get_unique_chatmodels():
+    """从 `workspace_cache.json` 获取所有出现过的 `chatmodel` 并去重"""
+    data = load_workspace_cache()
+    chatmodels = set()
+
+    for ws in data.get("workspaces", []):
+        chat_model = ws.get("chatModel")
+        if chat_model:
+            chatmodels.add(chat_model)
+
+    return sorted(chatmodels)  # **返回排序后的唯一 chatmodel 列表**
 
 if __name__ == '__main__':
     input_md = './C9_docker.md'  # 输入Markdown文件路径

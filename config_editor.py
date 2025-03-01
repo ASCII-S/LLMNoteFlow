@@ -2,6 +2,7 @@ import sys, os
 import importlib
 from config import *
 import config
+from file_utils import load_workspace_cache, get_unique_chatmodels
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QComboBox, QFileDialog
 from PyQt6.QtGui import QCursor
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -26,6 +27,8 @@ class ConfigEditor(QWidget):
         self.immutable_config_lines = []
         self.modifiable_config_lines = []
 
+        # **加载工作区数据**
+        self.workspace_data = load_workspace_cache()
 
         self.load_config()  # 动态加载配置
 
@@ -50,10 +53,41 @@ class ConfigEditor(QWidget):
                 self.layout.addWidget(QLabel(f"📌 {item}"))  # 分割标题
             elif isinstance(item, tuple):
                 key, value, original_line = item
-            
+
+                # **API_KEY 采用隐藏显示**
+                if key == "API_KEY":
+                    self.layout.addWidget(QLabel(key))
+                    self.api_key_input = QLineEdit(str(value))
+                    self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)  # **设置密码模式**
+                    self.layout.addWidget(self.api_key_input)
+
+                    # **添加 "显示/隐藏" 按钮**
+                    self.toggle_api_key_button = QPushButton("显示 API_KEY")
+                    self.toggle_api_key_button.setCheckable(True)  # 允许切换
+                    self.toggle_api_key_button.toggled.connect(self.toggle_api_key_visibility)
+                    self.layout.addWidget(self.toggle_api_key_button)
+
+                    self.config_fields[key] = self.api_key_input  # 绑定 QLineEdit
+                    continue
+                
+                # **工作区相关的下拉框**
+                if key in ["workspace_name", "chatmodel", "thread_name"]:
+                    self.layout.addWidget(QLabel(key))
+                    combo_box = QComboBox()
+                    combo_box.setEditable(True)  # **可手动输入**
+                    self.update_workspace_options(combo_box, key, value)
+                    self.layout.addWidget(combo_box)
+                    self.config_fields[key] = combo_box  # **绑定 QComboBox**
+                    
+                    # **如果是 `workspace_name`，需要联动 `chatmodel` 和 `thread_name`**
+                    if key == "workspace_name":
+                        combo_box.currentTextChanged.connect(self.update_chatmodel_and_threads)
+
+                    continue
+
                 if key == "project_folder_path":
                     self.layout.addWidget(QLabel(key))
-                    self.project_folder_path_input = QLineEdit(str(value).strip('"'))  # 去除引号
+                    self.project_folder_path_input = QLineEdit(str(value).lstrip('r').strip('"'))  # 去除引号
                     self.project_folder_path_input.setReadOnly(True)  # 只读，避免手动输入错误
                     self.layout.addWidget(self.project_folder_path_input)
                     self.project_folder_button = QPushButton("选择项目目录")
@@ -101,6 +135,82 @@ class ConfigEditor(QWidget):
                 # 保存原始行
                 self.modifiable_config_lines.append(original_line)
 
+    def toggle_api_key_visibility(self, checked):
+        """切换 API_KEY 显示/隐藏"""
+        if checked:
+            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Normal)  # 显示明文
+            self.toggle_api_key_button.setText("隐藏 API_KEY")
+        else:
+            self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)  # 隐藏内容
+            self.toggle_api_key_button.setText("显示 API_KEY")
+
+    def update_workspace_options(self, combo_box, key, current_value):
+        """
+        **更新 QComboBox 选项**
+        - `workspace_name`：所有 `workspaces`
+        - `chatmodel`：当前 `workspace_name` 关联的 `chatmodel`
+        - `thread_name`：当前 `workspace_name` 关联的所有 `thread_name`
+        """
+        combo_box.clear()
+        combo_box.addItem("input_new")  # **首项为 `新建`**
+
+        workspaces = self.workspace_data.get("workspaces", [])
+
+        if key == "workspace_name":
+            default_workspace = "DefaultWorkspace"
+            combo_box.addItem(default_workspace)  # **默认项**
+            # **获取所有 `workspace_name`**
+            for ws in workspaces:
+                combo_box.addItem(ws["name"])
+
+        elif key == "chatmodel":
+            # **获取所有 `chatmodel` 并去重**
+            chatmodels = get_unique_chatmodels()
+
+            # **确保默认 `chatmodel` 存在**
+            if default_model not in chatmodels:
+                chatmodels.insert(0, default_model)
+
+            # **填充 QComboBox**
+            for model in chatmodels:
+                if combo_box.findText(model) == -1:  # **避免重复**
+                    combo_box.addItem(model)
+
+        elif key == "thread_name":
+            default_thread = "DefaultThread"
+            combo_box.addItem(default_thread)  # **默认项**
+            # **查找当前 `workspace_name` 的所有 `thread_name`**
+            for ws in workspaces:
+                if ws["name"] == self.config_fields["workspace_name"].currentText():
+                    for thread in ws.get("threads", []):
+                        combo_box.addItem(thread["name"])
+                    break
+
+        combo_box.setCurrentText(current_value)  # **设定默认值**
+
+    def update_chatmodel_and_threads(self):
+        """当 `workspace_name` 变更时，仅更新 `thread_name`，`chatmodel` 保持所有可能选项"""
+        selected_workspace = self.config_fields["workspace_name"].currentText()
+
+        # **更新 `thread_name`**
+        self.config_fields["thread_name"].clear()
+        #self.config_fields["thread_name"].addItem("新建线程")  # **始终包含 `新建`**
+
+        for ws in self.workspace_data.get("workspaces", []):
+            if ws["name"] == selected_workspace:
+                # **填充 `thread_name`**
+                for thread in ws.get("threads", []):
+                    self.config_fields["thread_name"].addItem(thread["name"])
+                self.config_fields["thread_name"].addItem("input_new")  # **始终包含 `新建`**
+
+
+                return  # **匹配到 workspace，退出**
+        
+        # **如果是 workspace是`新建`，重置 `thread_name`**
+        self.config_fields["thread_name"].clear()
+        self.config_fields["thread_name"].addItem("input_new")
+
+
     def choose_directory(self):
         """让用户选择 `project_folder_path`"""
         folder = QFileDialog.getExistingDirectory(self, "选择项目主目录", project_folder_path)
@@ -115,7 +225,7 @@ class ConfigEditor(QWidget):
             self.update_file_options(self.source_file_selector, os.path.join(folder, data_folder_name))
             self.update_file_options(self.prompt_file_selector, os.path.join(folder, global_prompt_folder_name))
 
-    # 处理打开目录的函数
+    # 处理打开项目目录的函数
     def open_directory(self, path):
         """打开指定的目录"""
         # 自动识别并处理路径
