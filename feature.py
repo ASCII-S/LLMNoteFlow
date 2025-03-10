@@ -154,7 +154,7 @@ def md_folder_to_cards(progress_callback=None):
     workspace_name_slug = init_workspace(workspace_name,chatmodel,global_prompt).get("slug")
     chat_thread_slug = init_workspace_thread(workspace_name_slug,thread_name).get("slug")
     update_workspace(workspace_name_slug, init_updates)
-    update_workspace(workspace_name_slug, {"openAiprompt": global_prompt})
+    update_workspace(workspace_name_slug, {"openAiPrompt": global_prompt})
     #move_to_folder = lambda src, dst: (os.makedirs(dst) if not os.path.exists(dst) else None) or shutil.move(src, os.path.join(dst, os.path.basename(src)))
     
     # 如果已经存在结果文件output_file_path则删除
