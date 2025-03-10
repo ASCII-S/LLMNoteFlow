@@ -15,7 +15,8 @@ LLMNoteFlow是一个基于大语言模型(LLM)的笔记处理工具，旨在帮�
 
 - Python 3.8+
 - PyQt6
-- 网络连接（用于API调用）
+- Ollama安装并启动，具备本地模型
+- AnythingLLm安装并启动
 
 ## 安装指南
 
