@@ -4,6 +4,7 @@ import shutil
 from config import data_folder, global_prompt_folder_path, processed_folder, des_folder_path, finished_folder, unfinished_folder, output_folder_path, log_folder_path, WORKSPACE_CACHE_FILE
 from pathlib import Path
 import json
+import csv
 
 # 清理非法字符
 def clean_filename(name):
@@ -157,6 +158,59 @@ def get_unique_chatmodels():
             chatmodels.add(chat_model)
 
     return sorted(chatmodels)  # **返回排序后的唯一 chatmodel 列表**
+
+def extract_json(data_str):
+    print("Raw data to extract JSON from:\n", data_str)
+
+    # 1. 尝试从 ```json 中提取并确保有配对的 `````
+    try:
+        if "```json" in data_str:
+            start_index = data_str.find("```json") + len("```json")
+            end_index = data_str.find("```", start_index)
+            
+            # 如果找到了配对的结尾 ```
+            if start_index != -1 and end_index != -1:
+                csv_content = data_str[start_index:end_index].strip()
+                print("Extracted content from ```json:", csv_content)  # 输出提取的内容
+                json_data = json.loads(csv_content)  # 使用 json.loads 代替 ast.literal_eval
+                return json_data
+            else:
+                raise ValueError("没有找到有效的 JSON 结束标记```")
+    except Exception as e:
+        print(f"Error extracting from ```json block: {e}")
+
+    # 2. 如果没有 ```json，尝试通过括号匹配的方式提取 JSON
+    try:
+        # 使用正则表达式匹配第一个有效的 JSON 对象
+        json_str_match = re.search(r"\{.*\}", data_str, re.DOTALL)
+        if json_str_match:
+            csv_content = json_str_match.group(0)
+            print("Extracted content by matching braces:", csv_content)  # 输出提取的内容
+            json_data = json.loads(csv_content)
+            return json_data
+        else:
+            raise ValueError("无法从数据中提取有效的 JSON")
+    except Exception as e:
+        print(f"Error extracting JSON from braces: {e}")
+        return None
+
+
+def process_json_to_csv(json_data, output_file_path):
+    # 1. 查找包含问题和答案数据的字段（我们假设它是一个列表）
+    for key, value in json_data.items():
+        if isinstance(value, list):  # 假设包含问题和答案的字段是一个列表
+            answer_data = value
+            break
+    else:
+        print("没有找到包含问题和答案的列表字段。")
+        return
+    
+    # 2. 写入 CSV 数据，不写入列头
+    with open(output_file_path, "a+", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=answer_data[0].keys(), quoting=csv.QUOTE_MINIMAL)
+        for entry in answer_data:
+            writer.writerow(entry)
+
 
 if __name__ == '__main__':
     input_md = './C9_docker.md'  # 输入Markdown文件路径

@@ -4,17 +4,17 @@
 API_URL = r"http://localhost:3001/api"
 API_KEY = r"VCA7TJR-XWE4F0N-P46WAEV-NHEA2SV"
 # 工作区配置
-workspace_name = r"NoteImprover32b"
-chatmodel = r"deepseek-r1:32b"
-thread_name = r"newThread"
+workspace_name = r"CardsGenerator"
+chatmodel = r"deepseek-r1:7b"
+thread_name = r"input_new"
 # 项目主目录
-project_folder_path = r"D:\Document\ankiCards\c++primer"
+project_folder_path = r"D:\Document\ankiCards\并行程序设计"
 # 待处理文件位置:project_folder_path/data
-source_file_name = r"第 10 章 泛型算法.md"
+source_file_name = r"第 4 章 c++多线程编程 11c2c4690d19804c9627ceac0e15a881.md"
 # 全局提示文件位置:project_folder_path/global_prompt_file_name
-global_prompt_file_name = r"noteimprover_easy.md"
+global_prompt_file_name = r"cardsGenerator.md"
 # 输出文件后缀
-output_file_suffix = r"improved-32b.md"
+output_file_suffix = r"cards-7b.csv"
 #######end:modify this config#######
 
 
@@ -35,7 +35,15 @@ source_file_path = os.path.join(data_folder, source_file_name)
 #prompt
 global_prompt_folder_name = "prompt"
 global_prompt_folder_path = os.path.join(project_folder_path, global_prompt_folder_name)
-global_prompt_file_path = os.path.join(global_prompt_folder_path, global_prompt_file_name)
+# 检查 global_prompt_file_name 是否为内置提示词
+inline_prompt_folder_name = "inline_prompt"
+inline_prompt_folder_path = os.path.join(os.path.dirname(__file__), inline_prompt_folder_name)
+if os.path.exists(os.path.join(inline_prompt_folder_path, global_prompt_file_name)):
+    # 如果是内置提示词，使用 inline_prompt 文件夹路径
+    global_prompt_file_path = os.path.join(inline_prompt_folder_path, global_prompt_file_name)
+else:
+    # 否则使用默认的 prompt 文件夹路径
+    global_prompt_file_path = os.path.join(global_prompt_folder_path, global_prompt_file_name)
 #processed
 processed_folder_name = "processed"  # 存放所有处理后的数据
 processed_folder = os.path.join(project_folder_path, processed_folder_name)

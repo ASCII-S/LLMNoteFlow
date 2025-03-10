@@ -149,6 +149,11 @@ class MainWindow(QMainWindow):
         self.function_layout.addWidget(self.run_button)
         # 将功能布局添加到主布局
         self.layout.addLayout(self.function_layout)
+        # 停止按钮
+        self.stop_button = QPushButton("停止")
+        self.stop_button.setFixedWidth(100)  # 设定合适宽度
+        self.stop_button.clicked.connect(self._stop_task)  # 连接信号
+        self.function_layout.addWidget(self.stop_button)
 
         # 进度条
         self.progress_bar = QProgressBar()
@@ -530,6 +535,15 @@ class MainWindow(QMainWindow):
         # 启动线程
         self.worker_thread.start()
 
+    def _stop_task(self):
+        """停止当前任务"""
+        if self.worker_thread.isRunning():
+            self.worker_thread.terminate()  # 强制终止线程
+            self.run_button.setEnabled(True)
+            self.run_button.setText("运行")
+            self.progress_bar.setValue(0)
+            QMessageBox.information(self, "停止", "任务已停止！")
+            
     def _update_progress_bar(self, current_index, total_files):
         """根据进度更新进度条"""
         progress_percent = int((current_index / total_files) * 100)

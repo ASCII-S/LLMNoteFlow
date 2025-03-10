@@ -33,7 +33,15 @@ def reload_config():
     #prompt
     global_prompt_folder_name = "prompt"
     global_prompt_folder_path = os.path.join(project_folder_path, global_prompt_folder_name)
-    global_prompt_file_path = os.path.join(global_prompt_folder_path, global_prompt_file_name)
+    # 检查 global_prompt_file_name 是否为内置提示词
+    inline_prompt_folder_name = "inline_prompt"
+    inline_prompt_folder_path = os.path.join(os.path.dirname(__file__), inline_prompt_folder_name)
+    if os.path.exists(os.path.join(inline_prompt_folder_path, global_prompt_file_name)):
+        # 如果是内置提示词，使用 inline_prompt 文件夹路径
+        global_prompt_file_path = os.path.join(inline_prompt_folder_path, global_prompt_file_name)
+    else:
+        # 否则使用默认的 prompt 文件夹路径
+        global_prompt_file_path = os.path.join(global_prompt_folder_path, global_prompt_file_name)
     #processed
     processed_folder_name = "processed"  # 存放所有处理后的数据
     processed_folder = os.path.join(project_folder_path, processed_folder_name)
@@ -164,65 +172,100 @@ def md_folder_to_cards(progress_callback=None):
     # 获取文件列表并计算总数
     files = list(get_files_in_order(des_folder_path))
     total_files = len(files)
+    post_content = ""
     for index, md_file in enumerate(files, start=1):
-        try: 
-            md_content = text_file_to_string(md_file)
-            #md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
-            print("\nthinking...")
-
-            #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
-            #chat_respond = send_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content).get("textResponse")
-            chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
-            chat_think = chat_respond.split("<think>")[-1].split("</think>")[0]
-            chat_answer = chat_respond.split("</think>")[-1]
-
-            # print(chat_think)
-            # print("respond:\n")
-            print("chat_respond:\n",chat_respond,"end chat_respond\n")
-            # 从回答中提取 JSON 内容
-            try:
-                # 提取并解析 JSON 部分
-                csv_content = chat_answer.split("```json")[-1].split("```")[0].strip()
-                json_data = json.loads(csv_content)  # 使用 json.loads 代替 ast.literal_eval
-            except Exception as e:
-                print("Answer is not a valid json format")
-                print(csv_content)
-                continue
-
-            # 打印解析后的 JSON 数据（调试用）
-            print("Parsed JSON Data:", json_data)
-
-            # 确保数据格式为字典，并从中获取 '回答' 列表
-            if isinstance(json_data, dict) and '回答' in json_data:
-                answer_data = json_data['回答']  # 获取 '回答' 列表
-                if isinstance(answer_data, list):  # 确保是列表
-                    # 写入 CSV 数据
-                    csv_writer = csv.writer(sys.stdout, quoting=csv.QUOTE_ALL)
-                    for entry in answer_data:
-                        # 假设每个 entry 是一个字典，包含 '问题' 和 '答案'
-                        csv_writer.writerow([entry['问题'], entry['答案']])
-
-                    # 按 UTF-8 编码写入 CSV 文件
-                    with open(output_file_path, "a+", newline="", encoding="utf-8") as csvfile:
-                        writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
-                        for entry in answer_data:
-                            writer.writerow([entry['问题'], entry['答案']])
-                else:
-                    print("'回答' is not a list.")
-            else:
-                print("Parsed JSON data does not contain '回答' or is not a dictionary.")
-            
-            move_to_folder(md_file, finished_folder)
-            
-            # 触发进度更新（每处理一个文件更新一次）
-            if progress_callback:
-                progress_callback(index, total_files)
-        except Exception as e:
-            print(f"Error processing file {md_file}: {e}")
-            sys.exit(1)
-            # 将出现异常的 md_file 移动到未完成的文件夹中
-            move_to_folder(md_file, unfinished_folder)
+        md_content = text_file_to_string(md_file)
+        post_content += md_content.strip() + "\n"
+        # post_content大于指定行数时,发送post_content
+        threshold_line = 20
+        if len(post_content.split("\n")) <= threshold_line:
             continue
+        json_description = """
+            请你严格按照输出格式输出内容:{cards[{q,a},{q,a}]}的json格式,并用```json ```包裹.下面是输出模板,请严格按照输出模板格式,直接输出格式化的内容，无需任何解释性文字。:\n:
+            ```json
+                {
+                "cards": [
+                    {
+                    "q": "问题1",
+                    "a": "答案1"
+                    },
+                    {
+                    "q": "问题2",
+                    "a": "答案2"
+                    }
+                ]
+                }
+            ```
+            """ 
+        post_content = json_description + "下面是我的笔记内容:\n" + post_content
+
+        max_retries = 3
+        retry_count = 0
+        processed = False
+        while retry_count < max_retries and not processed:
+            try: 
+                json_data = None
+                chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, post_content)
+                chat_think = chat_respond.split("<think>")[-1].split("</think>")[0]
+                chat_answer = chat_respond.split("</think>")[-1]
+
+                # 从cards中提取 JSON 内容
+                try:
+                    # 提取并解析 JSON 部分
+                    json_str = chat_answer.split("```json")[-1].split("```")[0].strip()
+                    json_data = json.loads(json_str)  # 使用 json.loads 代替 ast.literal_eval
+                except Exception as e:
+                    # 抛出提取json失败信息
+                    raise ValueError(f"Failed to extract JSON from chat_answer: {str(e)}")
+
+                # 确保数据格式为字典，并从中获取 'cards' 列表
+                if isinstance(json_data, dict) and 'cards' in json_data:
+                    answer_data = json_data['cards']  # 获取 'cards' 列表
+                    if isinstance(answer_data, list):  # 确保是列表
+                        print("md_file:",md_file)
+                        # 写入 CSV 数据
+                        csv_writer = csv.writer(sys.stdout, quoting=csv.QUOTE_ALL)
+                        for entry in answer_data:
+                            # 假设每个 entry 是一个字典，包含 'q' 和 'a'
+                            csv_writer.writerow([entry['q'], "\n\t\t", entry['a']])
+
+                        # 按 UTF-8 编码写入 CSV 文件
+                        with open(output_file_path, "a+", newline="", encoding="utf-8") as csvfile:
+                            writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
+                            for entry in answer_data:
+                                writer.writerow([entry['q'], entry['a']])
+                    else:
+                        raise ValueError("'cards' is not a list.")
+                else:
+                    raise ValueError("Parsed JSON data does not contain 'cards' or is not a dictionary.")
+                    print("json_data:",json_data)
+                
+                move_to_folder(md_file, finished_folder)
+                post_content = ""
+                processed = True
+            except Exception as e:
+                retry_count += 1
+                if json_data :
+                    post_content = """\n请将下面的内容以{cards[{q,a},{q,a}]}的json格式输出：""" + json.dumps(json_data, ensure_ascii=False)
+                else:
+                    post_content = """\n请将下面的内容以{cards[{q,a},{q,a}]}的json格式输出：""" + chat_answer
+                post_content = json_description + post_content
+                if retry_count >= max_retries:
+                    print("=================Error=================")
+                    print(f"处理失败 ({retry_count}/{max_retries}): {str(e)}")
+                    print("md_file:",md_file)
+                    print("post_content:",post_content)
+                    print("chat_think:",chat_think)
+                    print("chat_answer:",chat_answer)
+                    # 打印json_data
+                    print("json_data:",json_data)
+                    print(f"移动文件到未完成文件夹: {md_file}")
+                    print("=======================================")
+                    move_to_folder(md_file, unfinished_folder)
+            finally:
+                if processed and progress_callback:
+                    progress_callback(index, total_files)
+
 
 def md_folder_note_improver(progress_callback=None):
     reload_config()
@@ -242,44 +285,37 @@ def md_folder_note_improver(progress_callback=None):
     # 获取文件列表并计算总数
     files = list(get_files_in_order(des_folder_path))
     total_files = len(files)
+    post_content = ""
     for index, md_file in enumerate(files, start=1):
         try: 
             md_content = text_file_to_string(md_file)
-            #md_content = global_prompt + "\n以下是需要你处理的笔记内容:\n" + md_content
-        
-            print("md_content:\n",md_content,"end md_content\n")
-            print("\nthinking...")
+            post_content += md_content.strip() + "\n"
             
-            # 如果md_content中除去空行只有一行,并且他是以#或##开头的,则直接将他添加到new_md_file中
-            if len(md_content.split("\n")) <= 2 and (md_content.startswith("#") or md_content.startswith("##")) and not md_content.startswith("###"):
-                save_to_new_md_file(md_file, md_content)
-                move_to_folder(md_file, finished_folder)
+            # post_content大于指定行数时,发送post_content
+            threshold_line = 20
+            if len(post_content.split("\n")) <= threshold_line:
                 continue
-
-            #chat_respond = send_message_to_workspace(workspace_name_slug, md_content).get("textResponse")
-            chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, md_content)
+            
+            chat_respond = send_stream_chat_to_thread(workspace_name_slug, chat_thread_slug, post_content)
             chat_think = chat_respond.split("<think>")[-1].split("</think>")[0]
             chat_answer = chat_respond.split("</think>")[-1]
-
-            # print(chat_think)
-            # print("respond:\n")
-            #print("chat_respond:\n",chat_respond,"end chat_respond\n")
-            # 从回答中提取 JSON 内容
             
             # 将chat_answer添加到新的md文件中
             save_to_new_md_file(md_file, chat_answer)
-
             move_to_folder(md_file, finished_folder)
-
-            # 触发进度更新（每处理一个文件更新一次）
-            if progress_callback:
-                progress_callback(index, total_files)
+            
         except Exception as e:
             print(f"Error processing file {md_file}: {e}")
-            sys.exit(1)
             # 将出现异常的 md_file 移动到未完成的文件夹中
             move_to_folder(md_file, unfinished_folder)
             continue
+        finally:
+            print("post_content:\n",post_content,"end post_content\n")
+            print("chat_respond:\n",chat_respond,"end chat_respond\n")
+            post_content = ""
+            # 触发进度更新（每处理一个文件更新一次）
+            if progress_callback:
+                progress_callback(index, total_files)
 
 def save_to_new_md_file(md_file, chat_answer):
     """
@@ -303,5 +339,5 @@ def save_to_new_md_file(md_file, chat_answer):
 
 
 if __name__ == "__main__":
-    #md_folder_to_cards()
-    md_folder_note_improver()
+    md_folder_to_cards()
+    # md_folder_note_improver()

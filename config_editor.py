@@ -39,6 +39,16 @@ class ConfigEditor(QWidget):
 
         self.setLayout(self.layout)
 
+    def load_inline_prompts(self):
+        """加载 inline_prompt 文件夹中的文件"""
+        # 使用当前文件夹的相对路径
+        current_folder = os.path.dirname(__file__)
+        inline_prompt_folder = os.path.join(current_folder, "inline_prompt")
+        inline_prompts = []
+        if os.path.exists(inline_prompt_folder) and os.path.isdir(inline_prompt_folder):
+            inline_prompts = [f for f in os.listdir(inline_prompt_folder) if f.endswith(".md")]
+        return inline_prompts
+
     def load_config(self):
         """重新加载 config.py,并解析注释作为分割标题"""
         importlib.reload(config)  # 重新加载配置
@@ -122,6 +132,12 @@ class ConfigEditor(QWidget):
                     self.layout.addWidget(QLabel(key))
                     self.prompt_file_selector = QComboBox()
                     self.update_file_options(self.prompt_file_selector, os.path.join(project_folder_path, global_prompt_folder_name))
+                    
+                    # 加载 inline_prompt 文件夹中的文件
+                    inline_prompts = self.load_inline_prompts()
+                    for prompt in inline_prompts:
+                        self.prompt_file_selector.addItem(prompt)
+
                     self.prompt_file_selector.setCurrentText(str(value))  # 设定当前选项
                     self.layout.addWidget(self.prompt_file_selector)
                     self.config_fields[key] = self.prompt_file_selector  # 绑定下拉框
@@ -194,7 +210,7 @@ class ConfigEditor(QWidget):
 
         # **更新 `thread_name`**
         self.config_fields["thread_name"].clear()
-        #self.config_fields["thread_name"].addItem("新建线程")  # **始终包含 `新建`**
+        # self.config_fields["thread_name"].addItem("input_new")  # **始终包含 `新建`**
 
         for ws in self.workspace_data.get("workspaces", []):
             if ws["name"] == selected_workspace:
@@ -252,7 +268,7 @@ class ConfigEditor(QWidget):
             if files:
                 combo_box.addItems(files)  # 添加文件列表
             else:
-                combo_box.addItem("（没有可用文件）")
+                combo_box.addItem("（没有可用的自定义提示词文件，请选择内置提示词）")
         else:
             combo_box.addItem("（未找到文件夹）")
 
